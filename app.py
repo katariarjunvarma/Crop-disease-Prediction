@@ -14,6 +14,7 @@ import json
 
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components
 import tensorflow as tf
 from PIL import Image
 
@@ -29,12 +30,21 @@ st.set_page_config(
 CONFIDENCE_THRESHOLD = 0.60
 
 # Bundled, version-controlled sample leaves so the demo works on a fresh deploy.
+# Each category is its own folder holding ~20 example images.
 SAMPLES_DIR = config.PROJECT_ROOT / "samples"
-SAMPLES = {
-    "🌿 Healthy": SAMPLES_DIR / "healthy.jpg",
-    "🍂 Leaf Mold": SAMPLES_DIR / "leaf_mold.jpg",
-    "🦠 Diseased (Bacterial Spot)": SAMPLES_DIR / "bacterial_spot.jpg",
+SAMPLE_CATEGORIES = {
+    "🌿 Healthy": SAMPLES_DIR / "healthy",
+    "🍂 Leaf Mold": SAMPLES_DIR / "leaf_mold",
+    "🦠 Diseased (Bacterial Spot)": SAMPLES_DIR / "bacterial_spot",
 }
+
+
+def _list_samples(folder):
+    files = []
+    if folder.exists():
+        for ext in ("*.jpg", "*.jpeg", "*.png"):
+            files.extend(sorted(folder.glob(ext)))
+    return files
 
 # ---------------------------------------------------------------------------
 # Domain knowledge: short, human-written notes for each disease. Matching is
@@ -229,34 +239,38 @@ uploaded = st.file_uploader(
     key=f"uploader_{st.session_state.uploader_key}",
 )
 
-st.subheader("🍃 …or try a sample leaf")
-st.caption("Click **Use this** to analyse a sample, or download it to drag into the box above.")
-sample_cols = st.columns(len(SAMPLES))
-for col, (label, path) in zip(sample_cols, SAMPLES.items()):
-    with col:
-        if path.exists():
-            st.image(str(path), use_container_width=True)
-        st.markdown(f"**{label}**")
-        if st.button("Use this", key=f"use_{path.name}", use_container_width=True):
-            st.session_state["sample_path"] = str(path)
-            st.session_state.uploader_key += 1  # clear any previous upload
-            st.rerun()
-        if path.exists():
-            with open(path, "rb") as fh:
-                st.download_button(
-                    "⬇ Download",
-                    fh.read(),
-                    file_name=path.name,
-                    mime="image/jpeg",
-                    key=f"dl_{path.name}",
-                    use_container_width=True,
-                )
+st.subheader("🍃 Samples")
+st.caption("Open a folder and click **Use** under any leaf to analyse it.")
+tabs = st.tabs(list(SAMPLE_CATEGORIES.keys()))
+for tab, (label, folder) in zip(tabs, SAMPLE_CATEGORIES.items()):
+    with tab:
+        images = _list_samples(folder)
+        if not images:
+            st.write("No sample images found in this folder.")
+            continue
+        st.caption(f"{len(images)} sample images")
+        ncols = 4
+        for start in range(0, len(images), ncols):
+            row_cols = st.columns(ncols)
+            for col, path in zip(row_cols, images[start:start + ncols]):
+                with col:
+                    st.image(str(path), use_container_width=True)
+                    if st.button("Use", key=f"use_{folder.name}_{path.name}",
+                                 use_container_width=True):
+                        st.session_state["sample_path"] = str(path)
+                        st.session_state.uploader_key += 1  # clear any upload
+                        st.session_state["scroll_to_results"] = True
+                        st.rerun()
 
 # Decide the active image: a fresh upload always wins over a stored sample.
 image = None
 if uploaded is not None:
     image = Image.open(uploaded)
     st.session_state.pop("sample_path", None)
+    uid = getattr(uploaded, "file_id", None) or f"{uploaded.name}:{uploaded.size}"
+    if st.session_state.get("last_upload") != uid:
+        st.session_state["last_upload"] = uid
+        st.session_state["scroll_to_results"] = True
 elif st.session_state.get("sample_path"):
     image = Image.open(st.session_state["sample_path"])
 
@@ -268,6 +282,7 @@ if image is None:
 # Prediction + results
 # ---------------------------------------------------------------------------
 st.divider()
+st.markdown('<div id="results-anchor"></div>', unsafe_allow_html=True)
 probs = predict(model, image)
 top = int(np.argmax(probs))
 top_conf = float(probs[top])
@@ -304,6 +319,20 @@ st.subheader("Class probabilities")
 for name, p in sorted(zip(class_names, probs), key=lambda x: -x[1]):
     st.write(f"{_pretty(name)} — {p:.1%}")
     st.progress(float(p))
+
+# Smooth-scroll to the results when a sample was used or a new image uploaded.
+if st.session_state.pop("scroll_to_results", False):
+    components.html(
+        """
+        <script>
+          setTimeout(function () {
+            const el = window.parent.document.getElementById('results-anchor');
+            if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+          }, 150);
+        </script>
+        """,
+        height=0,
+    )
 
 # Reset / upload-new control
 st.divider()
