@@ -1,0 +1,4 @@
+# Streamlit theme — green accent to match the crop/plant theme.
+# Base (light/dark) follows the user's system setting.
+[theme]
+primaryColor = "#2e9e5b"
