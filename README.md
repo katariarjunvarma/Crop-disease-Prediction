@@ -15,6 +15,7 @@ convolutional neural network, model training, and performance evaluation.
 - **TensorFlow/Keras CNN** with on-the-fly data augmentation (flip / rotate / zoom) for robustness.
 - **scikit-learn evaluation** — accuracy, per-class precision/recall/F1, and a confusion-matrix plot.
 - **Single-image prediction CLI** that outputs the predicted disease and class probabilities.
+- **Streamlit web app** — upload a leaf image and see the prediction with confidence bars.
 - **Runs out of the box** on a built-in synthetic demo dataset; swap in the real
   [PlantVillage](https://www.kaggle.com/datasets/abdallahalidev/plantvillage-dataset) dataset for production use.
 
@@ -25,6 +26,7 @@ convolutional neural network, model training, and performance evaluation.
 ```
 Crop-disease-Prediction/
 ├── main.py                     # CLI entry point (generate-demo / train / evaluate / predict)
+├── app.py                      # Streamlit web app (upload a leaf -> prediction)
 ├── requirements.txt
 ├── src/
 │   ├── config.py               # paths & hyper-parameters
@@ -69,6 +71,21 @@ python main.py predict data/Healthy/healthy_000.jpg
 
 Artifacts are written to `models/` (trained model + class names) and `reports/`
 (training-history plot, confusion matrix, classification report).
+
+---
+
+## Web app
+
+Launch the Streamlit interface and classify leaves from your browser:
+
+```bash
+streamlit run app.py
+```
+
+On first run (or a fresh deploy) the app auto-generates the demo dataset and
+trains the model, then lets you upload a leaf image and shows the predicted
+disease with per-class confidence bars. Deployable for free on
+[Streamlit Community Cloud](https://streamlit.io/cloud).
 
 ---
 
