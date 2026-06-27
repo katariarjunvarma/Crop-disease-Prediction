@@ -130,7 +130,3 @@ changes are needed.
 ## Tech stack
 
 `Python` · `TensorFlow / Keras` · `scikit-learn` · `NumPy` · `Pillow` · `Matplotlib`
-
-## License
-
-Released under the [MIT License](LICENSE).
