@@ -1,4 +1,8 @@
-# Streamlit theme — green accent to match the crop/plant theme.
-# Base (light/dark) follows the user's system setting.
+# Force a dark ("black") UI with a green accent to match the crop/plant theme.
 [theme]
+base = "dark"
 primaryColor = "#2e9e5b"
+
+# Hide the Deploy button and the developer "3-dot" menu — viewers see a clean UI.
+[client]
+toolbarMode = "minimal"

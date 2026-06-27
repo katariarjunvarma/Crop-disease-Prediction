@@ -1,9 +1,9 @@
 """Streamlit web UI for the Crop Disease Prediction model.
 
-Upload (or pick a sample) leaf image and get the predicted disease class with a
-confidence score, an agronomy-style description, and management advice. This is
-a thin presentation layer on top of the trained Keras model — the CLI pipeline
-in `main.py` remains the source of truth for training/evaluation.
+Upload (or drag-drop) a leaf image — or pick one of the bundled samples — and the
+app predicts the most likely disease with a confidence score, an agronomy-style
+description, and management advice. This is a thin presentation layer on top of
+the trained Keras model; `main.py` remains the source of truth for training.
 
 Run with:
     streamlit run app.py
@@ -23,9 +23,18 @@ st.set_page_config(
     page_title="Crop Disease Prediction",
     page_icon="🌱",
     layout="centered",
-    menu_items={"About": "Crop Disease Prediction — TensorFlow/Keras + scikit-learn. "
-                "Built by Katari Arjun Varma."},
 )
+
+# Predictions below this confidence are flagged as uncertain.
+CONFIDENCE_THRESHOLD = 0.60
+
+# Bundled, version-controlled sample leaves so the demo works on a fresh deploy.
+SAMPLES_DIR = config.PROJECT_ROOT / "samples"
+SAMPLES = {
+    "🌿 Healthy": SAMPLES_DIR / "healthy.jpg",
+    "🍂 Leaf Mold": SAMPLES_DIR / "leaf_mold.jpg",
+    "🦠 Diseased (Bacterial Spot)": SAMPLES_DIR / "bacterial_spot.jpg",
+}
 
 # ---------------------------------------------------------------------------
 # Domain knowledge: short, human-written notes for each disease. Matching is
@@ -160,17 +169,6 @@ def _pretty(name: str) -> str:
     return name.replace("___", " — ").replace("_", " ").title()
 
 
-def _sample_image(class_name: str):
-    """Return the path of the first demo image for a class, if available."""
-    folder = config.DATA_DIR / class_name
-    if folder.exists():
-        for ext in ("*.jpg", "*.jpeg", "*.png"):
-            files = sorted(folder.glob(ext))
-            if files:
-                return files[0]
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
@@ -184,13 +182,13 @@ st.caption(
 model, class_names = load_model_and_classes()
 
 # ---------------------------------------------------------------------------
-# Sidebar — about, model details, and tunable parameters
+# Sidebar — about + readable model summary (no settings)
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.header("ℹ️ About")
     st.write(
-        "Upload a leaf image and the model predicts the most likely disease "
-        "along with a confidence score and management advice."
+        "Upload a leaf image (or try a sample) and the model predicts the most "
+        "likely disease, how confident it is, and how to manage it."
     )
     st.write(
         "This demo ships with a small **synthetic** dataset so it runs instantly. "
@@ -200,40 +198,59 @@ with st.sidebar:
     )
 
     st.divider()
-    st.subheader("⚙️ Settings")
-    confidence_threshold = st.slider(
-        "Confidence threshold",
-        min_value=0.50,
-        max_value=0.95,
-        value=0.60,
-        step=0.05,
-        help="Predictions below this confidence are flagged as uncertain.",
+    st.subheader("🧠 How the model works")
+    st.write(
+        "A convolutional neural network (CNN) scans the leaf image and scores how "
+        "closely it matches each disease it has learned. The highest score becomes "
+        "the prediction."
     )
-    show_all_probs = st.checkbox("Show all class probabilities", value=True)
-
-    st.divider()
-    with st.expander("🧠 Model details"):
-        st.write(f"**Architecture:** CNN (3 conv blocks + dense head)")
-        st.write(f"**Input size:** {config.IMAGE_SIZE[0]}×{config.IMAGE_SIZE[1]} RGB")
-        st.write(f"**Trainable parameters:** {model.count_params():,}")
-        st.write(f"**Classes ({len(class_names)}):**")
-        for c in class_names:
-            st.write(f"- {_pretty(c)}")
+    st.markdown(
+        f"""
+| | |
+|---|---|
+| **Model** | CNN (3 conv blocks + dense head) |
+| **Image input** | {config.IMAGE_SIZE[0]}×{config.IMAGE_SIZE[1]} pixels (RGB) |
+| **Learned weights** | {model.count_params():,} |
+| **Conditions** | {len(class_names)} ({', '.join(_pretty(c) for c in class_names)}) |
+"""
+    )
 
 # ---------------------------------------------------------------------------
-# Input — upload or pick a sample
+# Input — upload (drag & drop) or pick a bundled sample
 # ---------------------------------------------------------------------------
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+
+st.subheader("📤 Upload a leaf image")
 uploaded = st.file_uploader(
-    "Upload a leaf image", type=["jpg", "jpeg", "png"], accept_multiple_files=False
+    "Drag & drop an image here, or browse your files",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=False,
+    key=f"uploader_{st.session_state.uploader_key}",
 )
 
-st.write("…or try a sample leaf:")
-sample_cols = st.columns(len(class_names))
-for col, c in zip(sample_cols, class_names):
-    if col.button(_pretty(c), use_container_width=True):
-        path = _sample_image(c)
-        if path:
+st.subheader("🍃 …or try a sample leaf")
+st.caption("Click **Use this** to analyse a sample, or download it to drag into the box above.")
+sample_cols = st.columns(len(SAMPLES))
+for col, (label, path) in zip(sample_cols, SAMPLES.items()):
+    with col:
+        if path.exists():
+            st.image(str(path), use_container_width=True)
+        st.markdown(f"**{label}**")
+        if st.button("Use this", key=f"use_{path.name}", use_container_width=True):
             st.session_state["sample_path"] = str(path)
+            st.session_state.uploader_key += 1  # clear any previous upload
+            st.rerun()
+        if path.exists():
+            with open(path, "rb") as fh:
+                st.download_button(
+                    "⬇ Download",
+                    fh.read(),
+                    file_name=path.name,
+                    mime="image/jpeg",
+                    key=f"dl_{path.name}",
+                    use_container_width=True,
+                )
 
 # Decide the active image: a fresh upload always wins over a stored sample.
 image = None
@@ -250,6 +267,7 @@ if image is None:
 # ---------------------------------------------------------------------------
 # Prediction + results
 # ---------------------------------------------------------------------------
+st.divider()
 probs = predict(model, image)
 top = int(np.argmax(probs))
 top_conf = float(probs[top])
@@ -264,7 +282,7 @@ with col_pred:
     st.metric("Confidence", f"{top_conf:.1%}")
     st.markdown(f"**Severity:** :{sev_color}[{sev_text}]")
 
-if top_conf < confidence_threshold:
+if top_conf < CONFIDENCE_THRESHOLD:
     st.warning(
         f"⚠️ Low confidence ({top_conf:.1%}). The model is unsure — try a "
         "clearer, well-lit photo of a single leaf for a more reliable result."
@@ -282,11 +300,17 @@ with desc_right:
     st.write(info["management"])
 
 # Probability breakdown
-if show_all_probs:
-    st.subheader("Class probabilities")
-    for name, p in sorted(zip(class_names, probs), key=lambda x: -x[1]):
-        st.write(f"{_pretty(name)} — {p:.1%}")
-        st.progress(float(p))
+st.subheader("Class probabilities")
+for name, p in sorted(zip(class_names, probs), key=lambda x: -x[1]):
+    st.write(f"{_pretty(name)} — {p:.1%}")
+    st.progress(float(p))
+
+# Reset / upload-new control
+st.divider()
+if st.button("🔄 Try another image", use_container_width=True):
+    st.session_state.pop("sample_path", None)
+    st.session_state.uploader_key += 1
+    st.rerun()
 
 # ---------------------------------------------------------------------------
 # Footer
